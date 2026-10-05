@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#111827">
+<title>Cuadrador de trenes</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#111827;background:#f3f4f6}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#f3f4f6}
+main{max-width:520px;margin:auto;padding:20px 16px 32px}
+h1{font-size:28px;margin:8px 0 6px}
+.subtitle{color:#6b7280;margin:0 0 22px;line-height:1.4}
+.card{background:#fff;border-radius:20px;padding:18px;box-shadow:0 4px 18px rgba(0,0,0,.07);margin-bottom:14px}
+label{display:block;font-weight:700;font-size:14px;margin-bottom:7px}
+input[type=time]{width:100%;font-size:24px;padding:13px 12px;border:1px solid #d1d5db;border-radius:12px;background:#fff}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button{width:100%;border:0;border-radius:13px;padding:15px;font-size:17px;font-weight:800;cursor:pointer}
+.primary{background:#111827;color:#fff}
+.secondary{background:#e5e7eb;color:#111827;margin-top:9px}
+.result{display:none}
+.result.show{display:block}
+.result-main{background:#111827;color:#fff;border-radius:18px;padding:20px}
+.result-label{font-size:13px;opacity:.75}
+.result-time{font-size:42px;font-weight:850;letter-spacing:-1px;margin:3px 0}
+.badge{display:inline-block;background:#374151;border-radius:999px;padding:5px 9px;font-size:13px;margin-top:3px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.metric{background:#f9fafb;border-radius:14px;padding:13px}
+.metric small{display:block;color:#6b7280;margin-bottom:4px}
+.metric strong{font-size:18px}
+.ok{color:#047857}
+.warn{color:#b45309}
+.error{background:#fef2f2;color:#991b1b;padding:14px;border-radius:14px;margin-top:12px;line-height:1.4}
+.note{font-size:13px;color:#6b7280;line-height:1.45;margin-top:14px}
+footer{text-align:center;color:#9ca3af;font-size:12px;margin-top:18px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🚆 Cuadrador de trenes</h1>
+  <p class="subtitle">Calcula hacia atrás las <b>8 h 45 min</b> desde la llegada del tren, incluso cuando termina al día siguiente.</p>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <label for="start">Salida del tren</label>
+        <input id="start" type="time" value="13:30" aria-label="Salida del tren">
+      </div>
+      <div>
+        <label for="end">Llegada del tren</label>
+        <input id="end" type="time" value="21:30" aria-label="Llegada del tren">
+      </div>
+    </div>
+    <button class="primary" onclick="calculate()">Calcular jornada</button>
+    <button class="secondary" onclick="resetForm()">Limpiar</button>
+  </section>
+
+  <section id="result" class="card result" aria-live="polite"></section>
+
+  <footer>8 h de trabajo + 45 min de descanso = 8 h 45 min</footer>
+</main>
+
+<script>
+const REQUIRED = 8 * 60 + 45;
+
+function toMinutes(value){
+  const [h,m] = value.split(":").map(Number);
+  return h*60+m;
+}
+
+function fmt(totalMinutes){
+  // Normaliza a reloj de 24 h
+  totalMinutes = ((totalMinutes % 1440) + 1440) % 1440;
+  const h = Math.floor(totalMinutes/60);
+  const m = totalMinutes % 60;
+  return String(h).padStart(2,"0") + ":" + String(m).padStart(2,"0");
+}
+
+function durationText(minutes){
+  const h = Math.floor(minutes/60);
+  const m = minutes % 60;
+  return `${h} h ${String(m).padStart(2,"0")} min`;
+}
+
+function dayOffsetLabel(offset){
+  if(offset === 0) return "mismo día";
+  if(offset === 1) return "+1 día";
+  if(offset === -1) return "−1 día";
+  return (offset > 0 ? "+" : "−") + Math.abs(offset) + " días";
+}
+
+function calculate(){
+  const startVal = document.getElementById("start").value;
+  const endVal = document.getElementById("end").value;
+  const result = document.getElementById("result");
+
+  if(!startVal || !endVal){
+    result.className = "card result show";
+    result.innerHTML = '<div class="error">Introduce la hora de salida y la hora de llegada.</div>';
+    return;
+  }
+
+  const start = toMinutes(startVal);
+  const endClock = toMinutes(endVal);
+
+  // La llegada se considera el mismo día si no es anterior a la salida.
+  // Si es anterior, cruza medianoche.
+  const endAbs = endClock < start ? endClock + 1440 : endClock;
+
+  const tripDuration = endAbs - start;
+
+  // La jornada se calcula SIEMPRE hacia atrás desde la llegada.
+  const workStartAbs = endAbs - REQUIRED;
+
+  // Diferencia entre la hora de inicio de jornada y la salida del tren.
+  const prep = start - workStartAbs;
+
+  // Para presentar el inicio respecto al día de salida.
+  const workStartClock = ((workStartAbs % 1440) + 1440) % 1440;
+  const workStartDayOffset = Math.floor(workStartAbs / 1440);
+
+  // La llegada está en día 0 o día +1 respecto a la salida.
+  const arrivalDayOffset = endClock < start ? 1 : 0;
+
+  let status = "";
+  if(tripDuration > REQUIRED){
+    status = `<div class="metric"><small>Tiempo sobre 8:45</small><strong class="warn">+${durationText(tripDuration-REQUIRED)}</strong></div>`;
+  }else if(tripDuration === REQUIRED){
+    status = `<div class="metric"><small>Margen de preparación</small><strong class="ok">0 min</strong></div>`;
+  }else{
+    status = `<div class="metric"><small>Faltan para 8:45</small><strong class="warn">${durationText(REQUIRED-tripDuration)}</strong></div>`;
+  }
+
+  const prepSign = prep >= 0 ? "" : "−";
+  const prepAbs = Math.abs(prep);
+
+  result.className = "card result show";
+  result.innerHTML = `
+    <div class="result-main">
+      <div class="result-label">INICIO DE JORNADA</div>
+      <div class="result-time">${fmt(workStartClock)}</div>
+      <span class="badge">${workStartDayOffset < 0 ? "día anterior" : workStartDayOffset > 0 ? "+"+workStartDayOffset+" día" : "mismo día"}</span>
+    </div>
+
+    <div class="grid">
+      <div class="metric">
+        <small>Salida del tren</small>
+        <strong>${startVal}</strong>
+      </div>
+      <div class="metric">
+        <small>Llegada</small>
+        <strong>${endVal} <span style="font-size:13px;color:#6b7280">${arrivalDayOffset ? "(+1 día)" : ""}</span></strong>
+      </div>
+      <div class="metric">
+        <small>Duración del tren</small>
+        <strong>${durationText(tripDuration)}</strong>
+      </div>
+      ${status}
+    </div>
+
+    <div class="metric" style="margin-top:10px">
+      <small>Preparación entre inicio de jornada y salida</small>
+      <strong>${prepSign}${durationText(prepAbs)}</strong>
+    </div>
+
+    <p class="note">
+      Cálculo: <b>${endVal}</b> − <b>8 h 45 min</b> = <b>${fmt(workStartClock)}</b>.
+      El descanso obligatorio de 45 min ya está incluido.
+      ${arrivalDayOffset ? "La llegada se ha interpretado automáticamente como del día siguiente." : ""}
+    </p>
+  `;
+}
+
+function resetForm(){
+  document.getElementById("start").value = "";
+  document.getElementById("end").value = "";
+  const result = document.getElementById("result");
+  result.className = "card result";
+  result.innerHTML = "";
+}
+
+// Permite pulsar Enter desde los campos.
+document.querySelectorAll("input").forEach(input => {
+  input.addEventListener("keydown", e => {
+    if(e.key === "Enter") calculate();
+  });
+});
+</script>
+</body>
+</html>
